@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
 """
 WaybackScanner - Passive Web Reconnaissance
+
+https://www.Github.com/SleepTheGod/Wayback
+
+sleepraps@gmail.com
+
 Made by Taylor Christian Newsome
 
-Features:
+Features
   - Passive subdomain discovery via Certificate Transparency
   - Archived URL discovery via Internet Archive CDX
   - API endpoint classification across archived paths
   - Retries, timeouts, JSON export, and command-line help
 
-Install:
+Install
   python3 -m pip install .
 
-Usage:
+Usage
   waybackscanner -h
   waybackscanner --help
   waybackscanner -d example.com
   waybackscanner -d example.com -l 5000 -o report.json
-
 Only use on domains you own or are authorized to assess.
 """
 
@@ -57,7 +61,6 @@ BANNER = r"""
  ░░░░░░░░░   ░░░░░░   ░░░░░░░░ ░░░░ ░░░░ ░░░░ ░░░░ ░░░░░  ░░░░░░  ░░░░░           ░░░░░    ░░    ░░░░░░
 """
 
-
 def request_text(url, timeout=20, retries=2):
     """Fetch a public HTTP resource with bounded retries."""
     request = Request(
@@ -67,85 +70,65 @@ def request_text(url, timeout=20, retries=2):
             "Accept": "application/json,text/plain,*/*",
         },
     )
-
     for attempt in range(retries + 1):
         try:
             with urlopen(request, timeout=timeout) as response:
                 return response.read().decode("utf-8", errors="replace")
-
         except HTTPError as exc:
             retryable = exc.code in (429, 500, 502, 503, 504)
             if not retryable or attempt >= retries:
                 raise
-
             print(
                 f"[!] HTTP {exc.code}; retrying "
                 f"({attempt + 1}/{retries})...",
                 file=sys.stderr,
             )
-
         except (URLError, TimeoutError) as exc:
             if attempt >= retries:
                 raise
-
             print(
                 f"[!] Network error: {exc}; retrying "
                 f"({attempt + 1}/{retries})...",
                 file=sys.stderr,
             )
-
         time.sleep(min(2 ** attempt, 8))
-
     raise RuntimeError("Request failed after retries")
-
 
 def validate_domain(value):
     """Validate a base domain supplied by the user."""
     value = value.strip().lower().rstrip(".")
-
     pattern = (
         r"(?=.{1,253}$)"
         r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
         r"[a-z]{2,63}"
     )
-
     if not re.fullmatch(pattern, value):
         raise argparse.ArgumentTypeError(
             "Enter a valid hostname such as example.com, not a full URL"
         )
-
     return value
-
 
 def enumerate_subdomains(domain, timeout, retries):
     """Collect subdomains from public Certificate Transparency records."""
     hosts = {domain}
-
     query = CRT_URL + "?" + urlencode({
         "q": f"%.{domain}",
         "output": "json",
     })
-
     try:
         rows = json.loads(request_text(query, timeout, retries))
-
         if not isinstance(rows, list):
             raise ValueError("Unexpected certificate log response")
-
         for row in rows:
             if not isinstance(row, dict):
                 continue
-
             for raw_name in row.get("name_value", "").splitlines():
                 name = raw_name.strip().lower().rstrip(".")
-
                 if name.startswith("*."):
                     name = name[2:]
-
                 if name == domain or name.endswith("." + domain):
                     if re.fullmatch(r"[a-z0-9.-]+", name):
                         hosts.add(name)
-
     except (
         HTTPError,
         URLError,
@@ -157,9 +140,7 @@ def enumerate_subdomains(domain, timeout, retries):
             f"[!] Certificate Transparency lookup failed: {exc}",
             file=sys.stderr,
         )
-
     return sorted(hosts)
-
 
 def fetch_archived_urls(domain, limit, timeout, retries):
     """Retrieve a bounded sample of archived URLs for a domain."""
@@ -171,32 +152,22 @@ def fetch_archived_urls(domain, limit, timeout, retries):
         "collapse": "urlkey",
         "limit": str(limit),
     }
-
     url = CDX_URL + "?" + urlencode(params)
     data = json.loads(request_text(url, timeout, retries))
-
     if not isinstance(data, list) or not data:
         return []
-
     header = data[0]
-
     if not isinstance(header, list):
         raise ValueError("Unexpected CDX response header")
-
     records = []
-
     for row in data[1:]:
         if not isinstance(row, list):
             continue
-
         item = dict(zip(header, row))
         original = item.get("original", "")
-
         if original:
             records.append(item)
-
     return records
-
 
 API_PATH = re.compile(
     r"/(?:api(?:/|$)|graphql(?:/|$)|rest(?:/|$)|"
@@ -204,14 +175,12 @@ API_PATH = re.compile(
     re.IGNORECASE,
 )
 
-
 def is_api_url(url):
     """Return True if a URL contains a recognizable API path."""
     try:
         return bool(API_PATH.search(urlsplit(url).path))
     except ValueError:
         return False
-
 
 def hostname_in_scope(url, domain):
     """Restrict results to the requested domain and its subdomains."""
@@ -221,10 +190,8 @@ def hostname_in_scope(url, domain):
     except ValueError:
         return False
 
-
 def run(args):
     domain = args.domain
-
     print(BANNER)
     print(AUTHOR)
     print(f"WaybackScanner v{VERSION} | Passive reconnaissance")
@@ -234,14 +201,12 @@ def run(args):
     print()
 
     print("[*] Enumerating public certificate-log subdomains...")
-
     subdomains = set(
         enumerate_subdomains(domain, args.timeout, args.retries)
     )
-
     print(f"[+] Certificate-log hosts: {len(subdomains)}")
-    print("[*] Querying Internet Archive CDX...")
 
+    print("[*] Querying Internet Archive CDX...")
     try:
         records = fetch_archived_urls(
             domain,
@@ -249,7 +214,6 @@ def run(args):
             args.timeout,
             args.retries,
         )
-
     except (
         HTTPError,
         URLError,
@@ -274,18 +238,14 @@ def run(args):
 
     # Deduplicate URLs and collect additional archived hostnames.
     unique = {}
-
     for item in records:
         original = item["original"]
         unique[original] = item
-
         host = urlsplit(original).hostname
-
         if host:
             subdomains.add(host.lower().rstrip("."))
 
     archived_urls = list(unique.values())
-
     api_urls = [
         item for item in archived_urls
         if is_api_url(item.get("original", ""))
@@ -304,12 +264,10 @@ def run(args):
     }
 
     print("\n[*] Discovered subdomains:")
-
     for host in sorted(subdomains):
         print(f"  {host}")
 
     print("\n[*] Archived API-like endpoints:")
-
     for item in api_urls:
         print(f"  {item['original']}")
 
@@ -321,16 +279,13 @@ def run(args):
     try:
         with open(args.output, "w", encoding="utf-8") as handle:
             json.dump(result, handle, indent=2, ensure_ascii=False)
-
         print(f"[+] JSON report   : {args.output}")
-
     except OSError as exc:
         print(f"[!] Cannot write report: {exc}", file=sys.stderr)
         return 1
 
     print("[+] Finished. Passive sources only.")
     return 0
-
 
 def build_parser():
     parser = argparse.ArgumentParser(
@@ -343,15 +298,13 @@ def build_parser():
             "--limit 500 --output report.json"
         ),
     )
-
     parser.add_argument(
         "-d",
         "--domain",
         type=validate_domain,
-        default="tryhackme.com",
-        help="Base domain to investigate (default: tryhackme.com)",
+        required=True,
+        help="Base domain to investigate (e.g. example.com)",
     )
-
     parser.add_argument(
         "-l",
         "--limit",
@@ -359,7 +312,6 @@ def build_parser():
         default=1000,
         help="Maximum CDX records requested (default: 1000)",
     )
-
     parser.add_argument(
         "-t",
         "--timeout",
@@ -367,7 +319,6 @@ def build_parser():
         default=20,
         help="HTTP timeout in seconds (default: 20)",
     )
-
     parser.add_argument(
         "-r",
         "--retries",
@@ -375,59 +326,33 @@ def build_parser():
         default=2,
         help="Retries for transient errors (default: 2)",
     )
-
     parser.add_argument(
         "-o",
         "--output",
         default="waybackscanner-report.json",
         help="JSON report path",
     )
-
     parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {VERSION}",
     )
-
     return parser
-
 
 def main():
     parser = build_parser()
     args = parser.parse_args()
-
     if args.limit < 1:
         parser.error("--limit must be at least 1")
-
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
-
     if args.retries < 0:
         parser.error("--retries cannot be negative")
-
     try:
         return run(args)
     except KeyboardInterrupt:
         print("\n[!] Interrupted.", file=sys.stderr)
         return 130
 
-
 if __name__ == "__main__":
     sys.exit(main())
-
-python
-# setup.py
-from setuptools import setup
-
-setup(
-    name="waybackscanner",
-    version="1.0.0",
-    description="Passive Wayback archive and subdomain reconnaissance",
-    py_modules=["waybackscanner"],
-    python_requires=">=3.9",
-    entry_points={
-        "console_scripts": [
-            "waybackscanner=waybackscanner:main",
-        ],
-    },
-)
