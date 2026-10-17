@@ -1,4 +1,3 @@
-```markdown
 # WaybackScanner
 
 **Passive Web Reconnaissance Tool**  
@@ -86,4 +85,3 @@ GitHub: [SleepTheGod](https://github.com/SleepTheGod)
 ## License
 
 MIT
-```
